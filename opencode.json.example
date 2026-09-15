@@ -1,0 +1,16 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "pncp": {
+      "type": "local",
+      "command": [
+        "C:/CAMINHO/pncp-assistente-node/node_modules/.bin/tsx.cmd",
+        "C:/CAMINHO/pncp-assistente-node/src/mcp-server.ts"
+      ],
+      "enabled": true,
+      "environment": {
+        "PNCP_DATA_DIR": "C:/CAMINHO/pncp-assistente-node/dados"
+      }
+    }
+  }
+}
