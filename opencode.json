@@ -5,11 +5,11 @@
       "type": "local",
       "command": [
         "node",
-        "C:/CAMINHO/pncp-assistente-node/dist/src/mcp-server.js"
+        "C:/Users/jv/Documents/sistemas/teste comprasnet/pncp-assistente-node/dist/src/mcp-server.js"
       ],
       "enabled": true,
       "environment": {
-        "PNCP_DATA_DIR": "C:/CAMINHO/pncp-assistente-node/dados"
+        "PNCP_DATA_DIR": "C:/Users/jv/Documents/sistemas/teste comprasnet/pncp-assistente-node/dados"
       }
     }
   }

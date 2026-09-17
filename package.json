@@ -8,7 +8,8 @@
     "build": "tsc -p tsconfig.json",
     "test": "tsx --test test/**/*.test.ts",
     "doctor": "tsx src/cli.ts doctor",
-    "start:mcp": "node dist/mcp-server.js",
+    "prestart:mcp": "npm run build",
+    "start:mcp": "node dist/src/mcp-server.js",
     "start:mcp:dev": "tsx src/mcp-server.ts"
   },
   "dependencies": {

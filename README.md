@@ -29,8 +29,8 @@ Mescle esta entrada à configuração existente, sem remover outros MCPs:
     "pncp": {
       "type": "local",
       "command": [
-        "C:/CAMINHO/pncp-assistente-node/node_modules/.bin/tsx.cmd",
-        "C:/CAMINHO/pncp-assistente-node/src/mcp-server.ts"
+        "node",
+        "C:/CAMINHO/pncp-assistente-node/dist/src/mcp-server.js"
       ],
       "enabled": true,
       "environment": {
@@ -41,7 +41,7 @@ Mescle esta entrada à configuração existente, sem remover outros MCPs:
 }
 ```
 
-Para produção local, prefira compilar e usar `node dist/mcp-server.js` no lugar de `tsx`.
+Após `npm run build`, o artefato fica em `dist/src/mcp-server.js` porque o `tsconfig.json` mantém a pasta `src` dentro do diretório de saída. O script `npm run start:mcp` executa o build automaticamente antes de iniciar o servidor.
 
 ## Ferramentas MCP
 
