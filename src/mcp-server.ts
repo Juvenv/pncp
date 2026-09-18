@@ -8,7 +8,7 @@ const service = (): Service => new Service();
 const jsonResult = (value: unknown) => ({ content: [{ type: 'text' as const, text: JSON.stringify(value, null, 2) }] });
 
 server.registerTool('iniciar_pesquisa', {
-  description: 'Cria pesquisa PNCP persistida e mostra filtros interpretados.',
+  description: 'Cria pesquisa de atas. Cada termo é uma busca independente (união sem duplicatas); não envie o prompt inteiro. Para SSD 1 TB ou 2 TB, comece com termos=["ssd"] e valide capacidades nos documentos. Filtros: esfera="federal" ou esferas="F"; situacao="vigente" ou status="vigente". Outros filtros são reportados como não aplicados. limites: tamanho_pagina (10 a 100), max_paginas por termo. Cobertura completa refere-se apenas às consultas, não à validação técnica.',
   inputSchema: { termos: z.array(z.string().max(200)).max(30).optional(), filtros: z.record(z.unknown()).optional(), modo: z.string().max(40).optional(), limites: z.record(z.unknown()).optional() }
 }, async ({ termos, filtros, modo, limites }) => { const s = service(); try { return jsonResult(s.start(termos ?? [], filtros ?? {}, modo ?? 'busca_rapida', limites ?? {})); } finally { s.close(); } });
 
@@ -18,8 +18,8 @@ server.registerTool('consultar_pesquisa', {
 }, async ({ pesquisa_id, limite }) => { const s = service(); try { return jsonResult(pesquisa_id ? s.store.summary(pesquisa_id, limite) : { pesquisas: s.store.list(limite) }); } finally { s.close(); } });
 
 server.registerTool('coletar_proxima_pagina', {
-  description: 'Consulta uma página do PNCP e avança checkpoint somente após gravar o lote.',
-  inputSchema: { pesquisa_id: z.string().regex(/^[a-f0-9-]{1,40}$/i), tamanho_pagina: z.number().int().min(10).max(500).default(10) }
+  description: 'Consulta uma página por termo ainda pendente; une resultados sem duplicatas. Mantém tamanho de página fixo, usa total do PNCP e persiste o lote antes de avançar. Exibe até 10 resultados no resumo; consulte unique_records e results_truncated.',
+  inputSchema: { pesquisa_id: z.string().regex(/^[a-f0-9-]{1,40}$/i), tamanho_pagina: z.number().int().min(10).max(100).optional() }
 }, async ({ pesquisa_id, tamanho_pagina }) => { const s = service(); try { return jsonResult(await s.collect(pesquisa_id, tamanho_pagina)); } finally { s.close(); } });
 
 server.registerTool('controlar_pesquisa', {

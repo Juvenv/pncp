@@ -6,6 +6,7 @@ import { evidenceSnippets, extractPdf, saveDocument } from './documents.js';
 import { rows } from './parsers.js';
 import { Store } from './store.js';
 import type { JsonObject } from './types.js';
+import { searchFilters, queryProgress, type QueryProgress } from './search.js';
 
 export class Service {
   readonly store: Store;
@@ -15,16 +16,49 @@ export class Service {
   }
   close(): void { this.store.close(); }
   start(terms: string[] = [], filters: JsonObject = {}, mode = 'busca_rapida', limits: JsonObject = {}): JsonObject {
-    const id = this.store.start(terms, { ...filters, modo: mode, limites: limits });
-    return { ...this.store.summary(id), interpretação: { termos_pesquisados: terms, filtros: filters, filtros_tecnicos_locais: true, cobertura_inicial: 'nenhuma página coletada' } };
+    searchFilters(filters);
+    for (const key of ['tamanho_pagina', 'max_paginas']) {
+      const value = limits[key];
+      if (value !== undefined && (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || (key === 'tamanho_pagina' && (value < 10 || value > 100)))) throw new Error(`Limite inválido: ${key}`);
+    }
+    const normalized = [...new Set(terms.map(term => term.trim()).filter(Boolean))];
+    const id = this.store.start(normalized, { ...filters, modo: mode, limites: limits, _search_version: 2 });
+    return { ...this.store.summary(id), interpretação: { termos_pesquisados: normalized, estrategia: 'Cada termo é uma consulta independente; união por identificador PNCP. Use SSD para busca ampla e valide capacidades nos documentos.', filtros_tecnicos_locais: false, cobertura_inicial: 'nenhuma página coletada' } };
   }
-  async collect(id: string, pageSize = 10): Promise<JsonObject> {
+  async collect(id: string, pageSize?: number): Promise<JsonObject> {
     const current = this.store.summary(id, 0); const filters = current.filtros;
+    if (filters._search_version !== 2) throw new Error('Pesquisa legada: crie uma nova pesquisa para aplicar os filtros e a estratégia corrigidos');
+    if (['paused', 'cancelled'].includes(current.status)) throw new Error('Pesquisa pausada ou cancelada');
+    if (current.status === 'completed') return this.store.summary(id) as unknown as JsonObject;
+    const limits = filters.limites as JsonObject;
+    const previous = this.store.lastPage(id);
+    const size = pageSize ?? previous?.tamanho_pagina ?? limits.tamanho_pagina ?? 100;
+    if (typeof size !== 'number' || !Number.isInteger(size) || size < 10 || size > 100) throw new Error('Tamanho de página deve estar entre 10 e 100');
+    if (previous && previous.tamanho_pagina !== size) throw new Error('Mantenha o tamanho de página para não pular resultados');
+    if (typeof limits.max_paginas === 'number' && current.next_page > limits.max_paginas) {
+      this.store.setStatus(id, 'partial', 'partial', 'Limite de páginas por termo atingido; crie nova pesquisa com limite maior');
+      return this.store.summary(id) as unknown as JsonObject;
+    }
     try {
-      const payload = await this.api.search(current.termos.length ? current.termos : undefined, current.next_page, pageSize, typeof filters.status === 'string' ? filters.status : undefined);
-      const data = rows(payload); this.store.ingest(id, current.next_page, payload);
-      const more = data.length >= pageSize || (payload !== null && typeof payload === 'object' && Boolean((payload as JsonObject).paginasRestantes));
-      this.store.setStatus(id, more ? 'running' : 'completed', more ? 'partial' : 'complete', more ? 'Limite/paginação ainda não concluídos' : null);
+      const effective = searchFilters(filters);
+      const queries = (previous?.consultas ?? []) as QueryProgress[];
+      const items: JsonObject[] = []; const progress: QueryProgress[] = [];
+      const responses: unknown[] = [];
+      for (const term of current.termos.length ? current.termos : ['']) {
+        const old = queries.find(query => query.termo === term);
+        if (old?.completa) { progress.push(old); continue; }
+        const payload = await this.api.search(term, current.next_page, size, effective);
+        const data = rows(payload);
+        const state = queryProgress(payload, data.length, size, old?.recebidos ?? 0);
+        const url = new URL(PncpApi.searchUrl);
+        for (const [key, value] of Object.entries({ ...effective, q: term, pagina: current.next_page, tam_pagina: size })) url.searchParams.set(key, String(value));
+        progress.push({ termo: term, pagina: current.next_page, ...state, url: url.href });
+        items.push(...data); responses.push({ termo: term, payload });
+      }
+      this.store.ingest(id, current.next_page, { items, consultas: progress, respostas: responses, tamanho_pagina: size });
+      const more = progress.some(query => !query.completa);
+      const limited = more && typeof limits.max_paginas === 'number' && current.next_page >= limits.max_paginas;
+      this.store.setStatus(id, more ? (limited ? 'partial' : 'running') : 'completed', more ? 'partial' : 'complete', more ? (limited ? 'Limite de páginas por termo atingido' : 'Paginação ainda não concluída') : null);
       return this.store.summary(id) as unknown as JsonObject;
     } catch (error) { this.store.setStatus(id, 'partial', 'unknown', `${error instanceof Error ? error.name : 'Error'}: ${String(error)}`); throw error; }
   }

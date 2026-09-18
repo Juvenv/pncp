@@ -4,6 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import { field, rows, stableId } from './parsers.js';
 import type { JsonObject, SearchSummary } from './types.js';
+import { searchFilters, pendingFilters, type QueryProgress } from './search.js';
 
 const schema = `
 CREATE TABLE IF NOT EXISTS pesquisas (id TEXT PRIMARY KEY, termos TEXT NOT NULL, filtros TEXT NOT NULL,
@@ -56,16 +57,33 @@ export class Store {
   setStatus(id: string, status: string, coverage?: string, reason?: string | null): void {
     this.db.prepare('UPDATE pesquisas SET status=?, coverage=COALESCE(?, coverage), reason=?, updated_at=CURRENT_TIMESTAMP WHERE id=?').run(status, coverage ?? null, reason ?? null, id);
   }
+  lastPage(id: string): JsonObject | null {
+    const row = this.db.prepare('SELECT payload FROM paginas WHERE pesquisa_id=? ORDER BY pagina DESC LIMIT 1').get(id) as { payload: string } | undefined;
+    return row ? JSON.parse(row.payload) as JsonObject : null;
+  }
   summary(id: string, limit = 10): SearchSummary {
     const row = this.db.prepare('SELECT id, termos, filtros, status, next_page, coverage, reason FROM pesquisas WHERE id=?').get(id) as Record<string, unknown> | undefined;
     if (!row) throw new Error('Pesquisa inexistente');
     const result = this.db.prepare('SELECT payload FROM registros WHERE pesquisa_id=? ORDER BY origem_id LIMIT ?').all(id, limit) as Array<{ payload: string }>;
     const records = result.map((item) => JSON.parse(item.payload) as JsonObject);
+    const filters = JSON.parse(String(row.filtros)) as JsonObject;
+    const legacy = filters._search_version !== 2;
+    const pending = pendingFilters(filters);
+    const page = this.lastPage(id);
+    const totalRecords = Number((this.db.prepare('SELECT COUNT(*) AS count FROM registros WHERE pesquisa_id=?').get(id) as { count: number }).count);
     const title = (record: JsonObject): string | null => { const value = field(record, 'title', 'descricao', 'objeto'); return typeof value === 'string' ? value.trim() : null; };
     return { pesquisa_id: String(row.id), termos: JSON.parse(String(row.termos)) as string[], filtros: JSON.parse(String(row.filtros)) as JsonObject,
-      status: String(row.status), next_page: Number(row.next_page), coverage: String(row.coverage), reason: row.reason == null ? null : String(row.reason),
-      unique_records: Number((this.db.prepare('SELECT COUNT(*) AS count FROM registros WHERE pesquisa_id=?').get(id) as { count: number }).count),
-      results: records.map((record) => ({ id: stableId(record), title: title(record), adesao: field(record, 'permite_adesao', 'possibilidadeAdesao') as boolean | null, orgao: field(record, 'orgao_nome', 'nomeOrgao') as string | null })) };
+      status: String(row.status), next_page: Number(row.next_page), coverage: legacy ? 'unknown' : String(row.coverage), reason: row.reason == null ? null : String(row.reason),
+      unique_records: totalRecords,
+      filtros_efetivos: legacy ? null : searchFilters(filters),
+      filtros_nao_aplicados: pending,
+      consultas: (page?.consultas ?? []) as QueryProgress[],
+      results_returned: records.length, results_truncated: records.length < totalRecords,
+      escopo_cobertura: 'Paginação das consultas textuais no índice PNCP; não confirma capacidade, preço ou autorização de adesão.',
+      pendencias: [...(legacy ? ['Pesquisa legada: filtros e sinônimos não eram aplicados corretamente; refaça a pesquisa.'] : []), ...pending.map(key => `Filtro não aplicado: ${key}`), 'Validar capacidade e vigência nos documentos.', 'Confirmar separadamente preço estimado, homologado, registrado e alterações posteriores.', 'Cadastro de adesão não constitui autorização de adesão.'],
+      results: records.map((record) => ({ id: stableId(record), title: title(record), adesao: field(record, 'permite_adesao', 'possibilidadeAdesao') as boolean | null, orgao: field(record, 'orgao_nome', 'nomeOrgao') as string | null,
+        descricao: field(record, 'description', 'descricao', 'objeto'), url: typeof record.item_url === 'string' && record.item_url.startsWith('/atas/') ? `https://pncp.gov.br/app${record.item_url}` : null,
+        esfera: field(record, 'esfera_id'), inicio_vigencia: field(record, 'data_inicio_vigencia'), fim_vigencia: field(record, 'data_fim_vigencia') })) };
   }
   list(limit = 20): SearchSummary[] { return (this.db.prepare('SELECT id FROM pesquisas ORDER BY created_at DESC LIMIT ?').all(limit) as Array<{ id: string }>).map((row) => this.summary(row.id, 0)); }
   addDocument(id: string, researchId: string, url: string, finalUrl: string, hash: string, contentType: string, bytes: number, status: string, path: string, extractor: string | null): void {
