@@ -1,5 +1,4 @@
 export type JsonObject = Record<string, unknown>;
-
 export interface SearchSummary {
   pesquisa_id: string;
   termos: string[];
@@ -14,7 +13,13 @@ export interface SearchSummary {
   consultas: import('./search.js').QueryProgress[];
   results_returned: number;
   results_truncated: boolean;
+  next_cursor: string | null;
   escopo_cobertura: string;
   pendencias: string[];
-  results: Array<{ id: string; title: string | null; adesao: boolean | null; orgao: string | null }>;
+  results: Array<{
+    id: string;
+    title: string | null;
+    adesao: boolean | null;
+    orgao: string | null;
+  }>;
 }

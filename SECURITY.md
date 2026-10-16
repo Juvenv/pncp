@@ -1,19 +1,24 @@
 # Segurança
 
-## Modelo de ameaça
+O MCP usa stdio e não abre porta HTTP. Dados e instruções de PDF/HTML são conteúdo não confiável; não são executados, nem interpretados como instruções do agente. ZIP não é extraído.
 
-Respostas HTTP, PDFs e textos indexados são dados não confiáveis. O servidor MCP não interpreta conteúdo documental como instrução, não executa arquivos, não abre arquivos compactados e não envia ações ao PNCP.
+## Controles
 
-## Controles implementados
+- HTTPS/443 somente para `pncp.gov.br` e `www.pncp.gov.br`, sem credenciais embutidas e com redirecionamentos recusados.
+- Timeout, prazo agregado, orçamento de tentativas, intervalo por processo e `Retry-After` com cooldown persistido.
+- Leitura em streaming: até 50 MB por documento e 10 MB para JSON.
+- PDF por assinatura, SHA-256 e worker: 25 s, 500 páginas, quatro milhões de caracteres, heap V8 de 256 MB; dois workers ativos. Heap V8 não limita toda a memória do sistema operacional.
+- PDFs são processados com avaliação de código desativada, fontes/recursos do pacote local e logs do worker separados do stdout MCP.
+- Banco com migração transacional/backup, vínculos documentais explícitos e validação de pesquisa/evidências; triggers protegem tabelas legadas e FKs protegem tabelas novas.
+- Coletas por pesquisa têm lease e revisão de estado; cancelamento do cliente chega ao serviço/HTTP. Operação tem prazo menor que a validade do lease.
+- Transações preservam checkpoint/estado e indexação completa. Idempotência por hash e IDs de evidência evita duplicação em reindexações iguais.
 
-- Somente `https://pncp.gov.br` e `https://www.pncp.gov.br` são aceitos para rede.
-- Redirecionamentos HTTP são recusados, evitando troca silenciosa de origem.
-- Timeout de rede, retries limitados a falhas transitórias e limite de 50 MB para downloads.
-- Validação de argumentos MCP com Zod e limites para termos, IDs, páginas e resultados.
-- Dados ficam em `PNCP_DATA_DIR`, separado do código-fonte.
-- PDFs são identificados por assinatura e SHA-256 antes da extração.
-- Dependências são fixadas por `package-lock.json`; `npm audit --omit=dev` deve permanecer sem vulnerabilidades.
+## Operação
 
-## Operação segura
+Proteja `PNCP_DATA_DIR`: logs contêm consultas, e PDFs/exports podem conter dados pessoais publicados. A pasta não entra no Git. Backups anteriores ao esquema 3 ficam em `backups/`; mantenha uma política de cópia externa e retenção.
 
-Use uma pasta de dados com permissões restritas e não exponha o processo MCP por HTTP. Não coloque tokens ou credenciais em `PNCP_DATA_DIR`. Revise URLs e evidências antes de qualquer decisão administrativa.
+Reinicie os processos MCP após compilar. Não misture versões antigas e novas usando o mesmo banco. Intervalo de requisições é local ao processo; não controla outros programas. A allowlist não fixa endereços DNS/IP do serviço.
+
+Dependências são reproduzíveis pelo lockfile; isso não demonstra ausência de vulnerabilidades. Consulte advisories/auditoria atual antes de atualizar dependências ou publicar o projeto. Não foi adicionada promessa de audit limpo sem consulta.
+
+Revise documentos e fontes antes de decisões administrativas. Cadastro de adesão não autoriza adesão; os quatro tipos/estágios de preço devem ser distinguidos.
